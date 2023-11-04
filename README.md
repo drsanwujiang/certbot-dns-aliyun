@@ -1,70 +1,77 @@
-# certbot-dns-aliyun
+# Alibaba Cloud DNS Authenticator for Certbot
 
-> 解决阿里云 DNS 不能自动为通配符证书续期的问题
+Certbot DNS validation hook scripts using Alibaba Cloud (Aliyun).
 
-## 原理
+## Install
 
-当我们使用 certbot 申请**通配符**证书时，需要手动添加 TXT 记录。每个 certbot 申请的证书有效期为 3 个月，虽然 certbot 提供了自动续期命令，但是当我们把自动续期命令配置为定时任务时，我们无法手动添加新的 TXT 记录用于 certbot 验证。
-
-好在 certbot 提供了一个 hook，可以编写一个 Shell 脚本。在续期的时候让脚本调用 DNS 服务商的 API 接口动态添加 TXT 记录，验证完成后再删除此记录。
-
-## 安装
-
-1. 安装 aliyun cli 工具
+1. Install Alibaba Cloud CLI
 
    ```shell
    wget https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
    tar xzvf aliyun-cli-linux-latest-amd64.tgz
-   sudo cp aliyun /usr/local/bin
+   cp aliyun /usr/local/bin
    rm aliyun
    ```
 
-   安装完成后需要配置[凭证信息](https://help.aliyun.com/document_detail/110341.html)
-
-2. 安装 certbot-dns-aliyun 插件
+2. Configure Alibaba Cloud CLI
 
    ```shell
-   wget https://cdn.jsdelivr.net/gh/justjavac/certbot-dns-aliyun@main/alidns.sh
-   sudo cp alidns.sh /usr/local/bin
-   sudo chmod +x /usr/local/bin/alidns.sh
-   sudo ln -s /usr/local/bin/alidns.sh /usr/local/bin/alidns
-   rm alidns.sh
+   aliyun configure --profile certbot
    ```
 
-3. 申请证书
+   Follow the interactive process to configure credentials.
 
-   测试是否能正确申请：
-
-   ```sh
-   certbot certonly -d *.example.com --manual --preferred-challenges dns --manual-auth-hook "alidns" --manual-cleanup-hook "alidns clean" --dry-run
+   ```
+   Configuring profile 'certbot' in 'AK' authenticate mode...
+   Access Key Id []: <Your Access Key Id>
+   Access Key Secret []: <Your Access Key Secret>
+   Default Region Id []: cn-hongkong
+   Default Output Format [json]: json (Only support json)
+   Default Language [zh|en] en:
+   Saving profile[certbot] ...Done.
    ```
 
-   正式申请时去掉 `--dry-run` 参数：
+3. Install DNS Plugin
 
-   ```sh
-   certbot certonly -d *.example.com --manual --preferred-challenges dns --manual-auth-hook "alidns" --manual-cleanup-hook "alidns clean"
+   ```shell
+   wget https://raw.githubusercontent.com/drsanwujiang/certbot-dns-aliyun/main/alidns-auth.sh
+   wget https://raw.githubusercontent.com/drsanwujiang/certbot-dns-aliyun/main/alidns-cleanup.sh
+   chmod +x alidns-auth.sh
+   chmod +x alidns-cleanup.sh
    ```
 
-4. 证书续期
+## Usage
 
-   ```sh
-   certbot renew --manual --preferred-challenges dns --manual-auth-hook "alidns" --manual-cleanup-hook "alidns clean" --dry-run
+Assume the scripts are located in the */root* directory.
+
+1. Obtain Certificates
+
+   ```shell
+   certbot certonly -d *.example.com --manual --preferred-challenges dns --manual-auth-hook "/root/alidns-auth.sh" --manual-cleanup-hook "/root/alidns-cleanup.sh"
    ```
 
-   如果以上命令没有错误，把 `--dry-run` 参数去掉。
+2. Renew certificates
 
-5. 自动续期
+   ```shell
+   certbot renew --manual --preferred-challenges dns --manual-auth-hook "/root/alidns-auth.sh" --manual-cleanup-hook "/root/alidns-cleanup.sh"
+   ```
 
-   添加定时任务 crontab。
+   Use `--deploy-hook` option to automatically reload Nginx/Apache after a successful renewal.
 
-   ```sh
+   ```shell
+   certbot renew --manual --preferred-challenges dns --manual-auth-hook "/root/alidns-auth.sh" --manual-cleanup-hook "/root/alidns-cleanup.sh" --deploy-hook "systemctl reload nginx"
+   ```
+
+3. Automated Renewals
+
+   ```shell
    crontab -e
    ```
 
-   输入
+   Add a cron job.
 
-   ```txt
-   1 1 */1 * * root certbot renew --manual --preferred-challenges dns --manual-auth-hook "alidns" --manual-cleanup-hook "alidns clean" --deploy-hook "nginx -s reload"
+   ```
+   0 0 1,15 * * certbot renew --manual --preferred-challenges dns --manual-auth-hook "/root/alidns-auth.sh" --manual-cleanup-hook "/root/alidns-cleanup.sh" --deploy-hook "systemctl reload nginx"
    ```
 
-   上面脚本中的 `--deploy-hook "nginx -s reload"` 表示在续期成功后自动重启 nginx。
+   It will automatically check and renew the certificates on the 1st and 15th of every month.
